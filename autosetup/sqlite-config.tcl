@@ -684,6 +684,15 @@ proc sqlite-check-common-system-deps {} {
     define HAVE_ZLIB 0
     define LDFLAGS_ZLIB ""
   }
+  if {[cc-check-includes zstd.h] && [proj-check-function-in-lib ZSTD_compress zstd]} {
+    define HAVE_ZSTD 1
+    define LDFLAGS_ZSTD -lzstd
+    sqlite-add-shell-opt -DSQLITE_HAVE_ZSTD=1
+    sqlite-add-feature-flag -DSQLITE_HAVE_ZSTD=1
+  } else {
+    define HAVE_ZSTD 0
+    define LDFLAGS_ZSTD ""
+  }
 }
 
 ########################################################################

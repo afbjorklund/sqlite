@@ -3721,6 +3721,7 @@ static const char *(azHelp[]) = {
   "     -0, --none                 No compression, just copy the contents",
   "     -1, --fast                 Faster compression",
   "     -9, --best                 Better compression",
+  "     -U, --ultra                Slow, but very high compression ratio",
   "   Examples:",
   "     .ar -cf ARCHIVE foo bar  # Create ARCHIVE from files foo and bar",
   "     .ar -tf ARCHIVE          # List members of ARCHIVE",
@@ -6304,6 +6305,7 @@ static int arErrorMsg(ArCommand *pAr, const char *zFmt, ...){
 #define AR_SWITCH_NONE       14
 #define AR_SWITCH_FAST       15
 #define AR_SWITCH_BEST       16
+#define AR_SWITCH_ULTRA      17
 
 static int arProcessSwitch(ArCommand *pAr, int eSwitch, const char *zArg){
   switch( eSwitch ){
@@ -6337,6 +6339,9 @@ static int arProcessSwitch(ArCommand *pAr, int eSwitch, const char *zArg){
       break;
     case AR_SWITCH_BEST:
       pAr->nLevel = 9;
+      break;
+    case AR_SWITCH_ULTRA:
+      pAr->nLevel = 22;
       break;
     case AR_SWITCH_APPEND:
       pAr->bAppend = 1;
@@ -6385,6 +6390,7 @@ static int arParseCommand(
     { "none",      '0', AR_SWITCH_NONE,      0 },
     { "fast",      '1', AR_SWITCH_FAST,      0 },
     { "best",      '9', AR_SWITCH_BEST,      0 },
+    { "ultra",     'U', AR_SWITCH_ULTRA,     0 },
   };
   int nSwitch = sizeof(aSwitch) / sizeof(struct ArSwitch);
   struct ArSwitch *pEnd = &aSwitch[nSwitch];
