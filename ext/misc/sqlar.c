@@ -33,7 +33,10 @@ SQLITE_EXTENSION_INIT1
 ** Future enhancements to SQLar might add support for new compression formats.
 ** If so, those new formats will be identified by alternative headers in the
 ** compressed data.
+**
+** zlib magic bytes: 78 5e (fast) | 78 9c (default) | 78 7d (best)
 */
+#define MAGIC_ZLIB_0 0x78
 static void sqlarCompressFunc(
   sqlite3_context *context,
   int argc,
@@ -99,6 +102,9 @@ static void sqlarUncompressFunc(
     Bytef *pOut = sqlite3_malloc(sz);
     if( pOut==0 ){
       sqlite3_result_error_nomem(context);
+    }else if( nData<=2 || pData[0] != MAGIC_ZLIB_0 ){
+      /* not in zlib format, copy as-is */
+      sqlite3_result_value(context, argv[0]);
     }else if( Z_OK!=uncompress(pOut, &szf, pData, nData) ){
       sqlite3_result_error(context, "error in uncompress()", -1);
     }else{
