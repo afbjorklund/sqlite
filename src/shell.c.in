@@ -3717,6 +3717,10 @@ static const char *(azHelp[]) = {
   "     -C DIR, --directory DIR    Read/extract files from directory DIR",
   "     -g, --glob                 Use glob matching for names in archive",
   "     -n, --dryrun               Show the SQL that would have occurred",
+  "   Compression levels:",
+  "     -0, --none                 No compression, just copy the contents",
+  "     -1, --fast                 Faster compression",
+  "     -9, --best                 Better compression",
   "   Examples:",
   "     .ar -cf ARCHIVE foo bar  # Create ARCHIVE from files foo and bar",
   "     .ar -tf ARCHIVE          # List members of ARCHIVE",
@@ -6237,6 +6241,7 @@ struct ArCommand {
   u8 bDryRun;                     /* True if --dry-run */
   u8 bAppend;                     /* True if --append */
   u8 bGlob;                       /* True if --glob */
+  int nLevel;                     /* Compression level */
   u8 fromCmdLine;                 /* Run from -A instead of .archive */
   int nArg;                       /* Number of command arguments */
   char *zSrcTable;                /* "sqlar", "zipfile($file)" or "zip" */
@@ -6296,6 +6301,9 @@ static int arErrorMsg(ArCommand *pAr, const char *zFmt, ...){
 #define AR_SWITCH_APPEND     11
 #define AR_SWITCH_DRYRUN     12
 #define AR_SWITCH_GLOB       13
+#define AR_SWITCH_NONE       14
+#define AR_SWITCH_FAST       15
+#define AR_SWITCH_BEST       16
 
 static int arProcessSwitch(ArCommand *pAr, int eSwitch, const char *zArg){
   switch( eSwitch ){
@@ -6320,6 +6328,15 @@ static int arProcessSwitch(ArCommand *pAr, int eSwitch, const char *zArg){
       break;
     case AR_SWITCH_VERBOSE:
       pAr->bVerbose = 1;
+      break;
+    case AR_SWITCH_NONE:
+      pAr->nLevel = 0;
+      break;
+    case AR_SWITCH_FAST:
+      pAr->nLevel = 1;
+      break;
+    case AR_SWITCH_BEST:
+      pAr->nLevel = 9;
       break;
     case AR_SWITCH_APPEND:
       pAr->bAppend = 1;
@@ -6365,6 +6382,9 @@ static int arParseCommand(
     { "directory", 'C', AR_SWITCH_DIRECTORY, 1 },
     { "dryrun",    'n', AR_SWITCH_DRYRUN,    0 },
     { "glob",      'g', AR_SWITCH_GLOB,      0 },
+    { "none",      '0', AR_SWITCH_NONE,      0 },
+    { "fast",      '1', AR_SWITCH_FAST,      0 },
+    { "best",      '9', AR_SWITCH_BEST,      0 },
   };
   int nSwitch = sizeof(aSwitch) / sizeof(struct ArSwitch);
   struct ArSwitch *pEnd = &aSwitch[nSwitch];
@@ -6794,7 +6814,7 @@ static int arCreateOrUpdateCommand(
      "      WHEN '-' THEN length(data)\n"
      "      WHEN 'd' THEN 0\n"
      "      ELSE -1 END,\n"
-     "    sqlar_compress(data)\n"
+     "    sqlar_compress(data, %d)\n"
      "  FROM fsdir(%Q,%Q) AS disk\n"
      "  WHERE lsmode(mode) NOT LIKE '?%%'%s;"
      ,
@@ -6803,7 +6823,7 @@ static int arCreateOrUpdateCommand(
      "    %s,\n"
      "    mode,\n"
      "    mtime,\n"
-     "    data\n"
+     "    data -- level %d\n"
      "  FROM fsdir(%Q,%Q) AS disk\n"
      "  WHERE lsmode(mode) NOT LIKE '?%%'%s;"
   };
@@ -6857,7 +6877,7 @@ static int arCreateOrUpdateCommand(
   for(i=0; i<pAr->nArg && rc==SQLITE_OK; i++){
     char *zSql2 = sqlite3_mprintf(zInsertFmt[pAr->bZip], zTab,
         pAr->bVerbose ? "shell_putsnl(name)" : "name",
-        pAr->azArg[i], pAr->zDir, zExists);
+        pAr->nLevel, pAr->azArg[i], pAr->zDir, zExists);
     rc = arExecSql(pAr, zSql2);
     sqlite3_free(zSql2);
   }
@@ -6889,6 +6909,7 @@ static int arDotCommand(
   int rc;
   memset(&cmd, 0, sizeof(cmd));
   cmd.fromCmdLine = fromCmdLine;
+  cmd.nLevel = -1; /* default */
   rc = arParseCommand(azArg, nArg, &cmd);
   if( rc==SQLITE_OK ){
     int eDbType = SHELL_OPEN_UNSPEC;
