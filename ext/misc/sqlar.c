@@ -132,6 +132,12 @@ static void sqlarUncompressFunc(
       sqlite3_result_value(context, argv[0]);
     }else if( Z_OK!=uncompress(pOut, &szf, pData, nData) ){
 #else
+#ifdef SQLITE_HAVE_ZLIB
+    /* backward-compatibility with existing archives */
+    }else if( nData>2 && pData[0] == MAGIC_ZLIB_0 &&
+              Z_OK==uncompress(pOut, &szf, pData, nData) ){
+      sqlite3_result_blob(context, pOut, szf, SQLITE_TRANSIENT);
+#endif
     }else if( nData<=4 || pData[0] != MAGIC_ZSTD_0 ){
       /* not in zstd format, copy as-is */
       sqlite3_result_value(context, argv[0]);
