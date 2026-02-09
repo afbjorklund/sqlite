@@ -82,7 +82,14 @@ static void sqlarCompressFunc(
 #ifdef COMPRESS_ZLIB
       if( Z_OK!=compress2(pOut, &nOut, pData, nData, lvl) ){
 #else
-      if( ZSTD_isError(nOut = ZSTD_compress(pOut, nOut, pData, nData, lvl)) ){
+      ZSTD_CCtx* cctx = ZSTD_createCCtx();
+      if( !cctx ){
+        sqlite3_result_error_nomem(context);
+        return;
+      }
+      ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+      ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, lvl);
+      if( ZSTD_isError(nOut = ZSTD_compress2(cctx, pOut, nOut, pData, nData)) ){
 #endif
         sqlite3_result_error(context, "error in compress()", -1);
       }else if( nOut<nData && lvl != 0 ){
@@ -90,6 +97,9 @@ static void sqlarCompressFunc(
       }else{
         sqlite3_result_value(context, argv[0]);
       }
+#ifndef COMPRESS_ZLIB
+      ZSTD_freeCCtx(cctx);
+#endif
       sqlite3_free(pOut);
     }
   }else{
