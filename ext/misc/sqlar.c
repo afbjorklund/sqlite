@@ -24,6 +24,7 @@ SQLITE_EXTENSION_INIT1
 #include <zstd.h>
 #endif
 #include <assert.h>
+#include <endian.h>
 
 /*
 ** Implementation of the "sqlar_compress(X,#)" SQL function.
@@ -161,6 +162,65 @@ static void sqlarUncompressFunc(
   }
 }
 
+/*
+** Implementation of the "sqlar_method_name(X)" SQL function
+**
+** Returns a string describing the compression of the data.
+*/
+static void sqlarMethodNameFunc(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+){
+  assert( argc==1 );
+  if( sqlite3_value_type(argv[0])!=SQLITE_BLOB ){
+      return;
+  }
+  const Bytef *pData = sqlite3_value_blob(argv[0]);
+  uLong nData = sqlite3_value_bytes(argv[0]);
+  if( nData>=2 && pData[0] == MAGIC_ZLIB_0 ){
+    sqlite3_result_text(context, "Zlib:#", -1, SQLITE_STATIC);
+    return;
+  }
+  if( nData>=4 && pData[0] == MAGIC_ZSTD_0 ){
+    sqlite3_result_text(context, "Zstd:#", -1, SQLITE_STATIC);
+    return;
+  }
+  sqlite3_result_text(context, "Stored", -1, SQLITE_STATIC);
+}
+
+/*
+** Implementation of the "sqlar_checksum_value(X)" SQL function
+**
+** Returns a 32-bit int containing the checksum of the data param.
+*/
+static void sqlarChecksumValueFunc(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+){
+  assert( argc==1 );
+  if( sqlite3_value_type(argv[0])!=SQLITE_BLOB ){
+      return;
+  }
+  const Bytef *pData = sqlite3_value_blob(argv[0]);
+  uLong nData = sqlite3_value_bytes(argv[0]);
+  if( nData<=4 || (pData[0] != MAGIC_ZLIB_0 &&
+                   pData[0] != MAGIC_ZSTD_0 ) ){
+      return;
+  }
+  UINT32_TYPE cksum = *(UINT32_TYPE*)(pData+nData-4);
+  if( pData[0] == MAGIC_ZLIB_0 ){
+    // zlib uses a big-endian checksum
+    cksum = be32toh(cksum);
+  }
+  if( pData[0] == MAGIC_ZSTD_0 ){
+    // zstd uses a little-endian checksum
+    cksum = le32toh(cksum);
+  }
+  sqlite3_result_int(context, cksum);
+}
+
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
@@ -179,6 +239,16 @@ int sqlite3_sqlar_init(
     rc = sqlite3_create_function(db, "sqlar_uncompress", 2,
                                  SQLITE_UTF8|SQLITE_INNOCUOUS, 0,
                                  sqlarUncompressFunc, 0, 0);
+  }
+  if( rc==SQLITE_OK ){
+    rc = sqlite3_create_function(db, "sqlar_method_name", 1,
+                                 SQLITE_UTF8|SQLITE_INNOCUOUS, 0,
+                                 sqlarMethodNameFunc, 0, 0);
+  }
+  if( rc==SQLITE_OK ){
+    rc = sqlite3_create_function(db, "sqlar_checksum_value", 1,
+                                 SQLITE_UTF8|SQLITE_INNOCUOUS, 0,
+                                 sqlarChecksumValueFunc, 0, 0);
   }
   return rc;
 }

@@ -3709,6 +3709,7 @@ static const char *(azHelp[]) = {
   "     -i, --insert               Like -u but always add even if unchanged",
   "     -r, --remove               Remove files from archive",
   "     -t, --list                 List contents of archive",
+  "     -l, --listzip              List contents of archive (zip style)",
   "     -x, --extract              Extract files from archive",
   "   Optional arguments:",
   "     -v, --verbose              Print each filename as it is processed",
@@ -6290,6 +6291,7 @@ static int arErrorMsg(ArCommand *pAr, const char *zFmt, ...){
 #define AR_CMD_INSERT       3
 #define AR_CMD_EXTRACT      4
 #define AR_CMD_LIST         5
+#define AR_CMD_LISTZIP      18
 #define AR_CMD_HELP         6
 #define AR_CMD_REMOVE       7
 
@@ -6312,6 +6314,7 @@ static int arProcessSwitch(ArCommand *pAr, int eSwitch, const char *zArg){
     case AR_CMD_CREATE:
     case AR_CMD_EXTRACT:
     case AR_CMD_LIST:
+    case AR_CMD_LISTZIP:
     case AR_CMD_REMOVE:
     case AR_CMD_UPDATE:
     case AR_CMD_INSERT:
@@ -6378,6 +6381,7 @@ static int arParseCommand(
     { "extract",   'x', AR_CMD_EXTRACT,      0 },
     { "insert",    'i', AR_CMD_INSERT,       0 },
     { "list",      't', AR_CMD_LIST,         0 },
+    { "listzip",   'l', AR_CMD_LISTZIP,      0 },
     { "remove",    'r', AR_CMD_REMOVE,       0 },
     { "update",    'u', AR_CMD_UPDATE,       0 },
     { "help",      'h', AR_CMD_HELP,         0 },
@@ -6638,6 +6642,71 @@ static int arListCommand(ArCommand *pAr){
       }else{
         cli_printf(pAr->out, "%s\n", sqlite3_column_text(pSql, 0));
       }
+    }
+  }
+  shellFinalize(&rc, pSql);
+  sqlite3_free(zWhere);
+  return rc;
+}
+
+/*
+** Implementation of .ar "listzip" command.
+*/
+static int arListzipCommand(ArCommand *pAr){
+  const char *zSql = "SELECT %s FROM %s WHERE %s";
+  const char *azCols[] = {
+    "sz, strftime('%Y-%m-%d %H:%M', mtime, 'unixepoch'), name",
+    "sz, sqlar_method_name(data), length(data), strftime('%Y-%m-%d %H:%M', mtime, 'unixepoch'), sqlar_checksum_value(data), name"
+  };
+
+  char *zWhere = 0;
+  sqlite3_stmt *pSql = 0;
+  int rc;
+
+  rc = arCheckEntries(pAr);
+  arWhereClause(&rc, pAr, &zWhere);
+
+  shellPreparePrintf(pAr->db, &rc, &pSql, zSql, azCols[pAr->bVerbose],
+                     pAr->zSrcTable, zWhere);
+  if( pAr->bDryRun ){
+    cli_printf(pAr->out, "%s\n", sqlite3_sql(pSql));
+  }else{
+    const char *archive = pAr->p->pAuxDb->zDbFilename;
+    cli_printf(pAr->out, "Archive:  %s\n", archive ? archive : "-");
+    int totallen = 0;
+    int totalsz = 0;
+    int totalfiles = 0;
+    if( pAr->bVerbose ){
+      cli_printf(pAr->out, " Length   Method    Size  Cmpr    Date    Time  Checksum  Name\n");
+      cli_printf(pAr->out, "--------  ------  ------- ---- ---------- ----- --------  ----\n");
+    }else{
+      cli_printf(pAr->out, "  Length      Date    Time    Name\n");
+      cli_printf(pAr->out, "---------  ---------- -----   ----\n");
+    }
+    while( rc==SQLITE_OK && SQLITE_ROW==sqlite3_step(pSql) ){
+      if( pAr->bVerbose ){
+        int percent = 100 - (sqlite3_column_int(pSql, 2) * 100) / sqlite3_column_int(pSql, 0);
+        cli_printf(pAr->out, "%8d  %s  %7d  %2d%% %s %08x  %s\n",
+              sqlite3_column_int(pSql, 0), sqlite3_column_text(pSql, 1),
+              sqlite3_column_int(pSql, 2), percent,
+              sqlite3_column_text(pSql, 3), sqlite3_column_int(pSql, 4),
+              sqlite3_column_text(pSql, 5));
+        totalsz += sqlite3_column_int(pSql, 2);
+      }else{
+        cli_printf(pAr->out, "  %7d  %s   %s\n",
+        sqlite3_column_int(pSql, 0), sqlite3_column_text(pSql, 1),
+        sqlite3_column_text(pSql, 2));
+      }
+      totallen += sqlite3_column_int(pSql, 0);
+      totalfiles++;
+    }
+    if( pAr->bVerbose ){
+      int totalpercent = 100 - (totalsz * 100 / totallen);
+      cli_printf(pAr->out, "--------          ------- ----                            ----\n");
+      cli_printf(pAr->out, "%8d          %7d  %2d%%                            %d files\n", totallen, totalsz, totalpercent, totalfiles);
+    }else{
+      cli_printf(pAr->out, "---------                     ----\n");
+      cli_printf(pAr->out, "  %7d                     %d files\n", totallen, totalfiles);
     }
   }
   shellFinalize(&rc, pSql);
@@ -6985,6 +7054,10 @@ static int arDotCommand(
 
       case AR_CMD_LIST:
         rc = arListCommand(&cmd);
+        break;
+
+      case AR_CMD_LISTZIP:
+        rc = arListzipCommand(&cmd);
         break;
 
       case AR_CMD_HELP:
